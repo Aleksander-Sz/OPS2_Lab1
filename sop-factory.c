@@ -286,6 +286,18 @@ void close_descriptors(int* desc, int worker_count, int my_id)
     }
 }
 
+int sethandler(void (*f)(int), int sigNo)  // copied from the lab on the sop website
+{
+    struct sigaction act;
+    memset(&act, 0, sizeof(struct sigaction));
+    act.sa_handler = f;
+    if (-1 == sigaction(sigNo, &act, NULL))
+        return -1;
+    return 0;
+}
+
+void handleInt(int sigNo) { ; }
+
 int main(int argc, char* argv[])
 {
     if (argc != 4)
@@ -364,8 +376,10 @@ int main(int argc, char* argv[])
             ERR("Error creating a process.\n");
         }
     }
+    int flag = 0;
     if (getpid() == boss_pid)
     {
+        set_handler(handleInt, SIGINT);
         close(warehouse);
         close(first_second_pipe[0]);
         close(first_second_pipe[1]);
@@ -381,5 +395,12 @@ int main(int argc, char* argv[])
     else
     {
         // printf("%d: descriptors: %d\n", getpid(), count_descriptors()-3);
+    }
+    while (1)
+    {
+        if (flag)
+        {
+            printf("Interrupt received\n");
+        }
     }
 }
