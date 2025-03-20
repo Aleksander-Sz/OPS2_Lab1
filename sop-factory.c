@@ -118,6 +118,25 @@ void first_brigade_work(int production_pipe_write, int boss_pipe, int warehouse)
         {
             ;  // printf("message sent\n");
         }
+
+
+        //tell the boss
+        char one_byte = '+';
+        res = write(boss_pipe, &one_byte, 1);
+        if (res == -1)
+        {
+            if(errno==EAGAIN)
+            {
+                continue;
+            }
+            if (errno == EPIPE)
+                printf("No readers for this pipe\n");
+            else
+            {
+                printf("Error sending the letter into a pipe\n");
+                ERR("Error sending the letter into a pipe\n");
+            }
+        }
     }
 }
 void second_brigade_work(int production_pipe_write, int production_pipe_read, int boss_pipe)
@@ -166,6 +185,25 @@ void second_brigade_work(int production_pipe_write, int production_pipe_read, in
                 ;  // printf("stage 2, message sent\n");
             }
         }
+
+
+        //tell the boss
+        char one_byte = '+';
+        res = write(boss_pipe, &one_byte, 1);
+        if (res == -1)
+        {
+            if(errno==EAGAIN)
+            {
+                continue;
+            }
+            if (errno == EPIPE)
+                printf("No readers for this pipe\n");
+            else
+            {
+                printf("Error sending the letter into a pipe\n");
+                ERR("Error sending the letter into a pipe\n");
+            }
+        }
     }
 }
 void third_brigade_work(int production_pipe_read, int boss_pipe)
@@ -201,6 +239,25 @@ void third_brigade_work(int production_pipe_read, int boss_pipe)
                 printf("%s\n", word);
             }
         }
+
+
+        //tell the boss
+        char one_byte = '+';
+        res = write(boss_pipe, &one_byte, 1);
+        if (res == -1)
+        {
+            if(errno==EAGAIN)
+            {
+                continue;
+            }
+            if (errno == EPIPE)
+                printf("No readers for this pipe\n");
+            else
+            {
+                printf("Error sending the letter into a pipe\n");
+                ERR("Error sending the letter into a pipe\n");
+            }
+        }
     }
     // sleep(4);
 }
@@ -226,6 +283,7 @@ void close_descriptors(int* desc, int worker_count, int my_id)
         if (i != my_id)
         {
             close(desc[i * 2 + 1]);
+            fcntl(desc[i * 2], F_SETFL, O_NONBLOCK);
         }
         close(desc[i * 2]);
     }
