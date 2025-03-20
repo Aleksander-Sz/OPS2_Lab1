@@ -119,13 +119,12 @@ void first_brigade_work(int production_pipe_write, int boss_pipe, int warehouse)
             ;  // printf("message sent\n");
         }
 
-
-        //tell the boss
+        // tell the boss
         char one_byte = '+';
         res = write(boss_pipe, &one_byte, 1);
         if (res == -1)
         {
-            if(errno==EAGAIN)
+            if (errno == EAGAIN)
             {
                 continue;
             }
@@ -186,13 +185,12 @@ void second_brigade_work(int production_pipe_write, int production_pipe_read, in
             }
         }
 
-
-        //tell the boss
+        // tell the boss
         char one_byte = '+';
         res = write(boss_pipe, &one_byte, 1);
         if (res == -1)
         {
-            if(errno==EAGAIN)
+            if (errno == EAGAIN)
             {
                 continue;
             }
@@ -240,13 +238,12 @@ void third_brigade_work(int production_pipe_read, int boss_pipe)
             }
         }
 
-
-        //tell the boss
+        // tell the boss
         char one_byte = '+';
         res = write(boss_pipe, &one_byte, 1);
         if (res == -1)
         {
-            if(errno==EAGAIN)
+            if (errno == EAGAIN)
             {
                 continue;
             }
