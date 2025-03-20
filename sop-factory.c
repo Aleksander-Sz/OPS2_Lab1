@@ -51,7 +51,9 @@ int count_descriptors()
     struct dirent* entry;
     struct stat stats;
     if ((dir = opendir("/proc/self/fd")) == NULL)
+    {
         ERR("opendir");
+    }
     char path[PATH_MAX];
     getcwd(path, PATH_MAX);
     chdir("/proc/self/fd");
@@ -79,20 +81,154 @@ void usage(char* program)
     exit(EXIT_FAILURE);
 }
 
-void first_brigade_work(int production_pipe_write, int boss_pipe)
+void first_brigade_work(int production_pipe_write, int boss_pipe, int warehouse)
 {
     srand(getpid());
+    int random_time;
+    int res;
+    char letter;
     printf("Worker %d from the first brigade: descriptors: %d\n", getpid(), count_descriptors());
+    while (1)
+    {
+        random_time = rand() % 10 + 1;
+        msleep(random_time);
+        // letter = rand()%('Z'-'A'+1)+'A';
+        do
+            res = read(warehouse, &letter, 1);
+        while (letter < 'a' || letter > 'z');  // reading from a fifo
+        letter += ('A' - 'a');
+        if (res < 0)
+        {
+            printf("Error reading from a fifo\n");
+            ERR("Error reading from a fifo\n");
+        }
+        // printf("Producing %c\n", letter);
+        res = write(production_pipe_write, &letter, 1);
+        if (res == -1)
+        {
+            if (errno == EPIPE)
+                printf("No readers for this pipe\n");
+            else
+            {
+                printf("Error sending the letter into a pipe\n");
+                ERR("Error sending the letter into a pipe\n");
+            }
+        }
+        else
+        {
+            ;  // printf("message sent\n");
+        }
+    }
 }
 void second_brigade_work(int production_pipe_write, int production_pipe_read, int boss_pipe)
 {
     srand(getpid());
+    int res, random_time, random_letter_count;
+    char letter;
+    char buf[4];
     printf("Worker %d from the second brigade: descriptors: %d\n", getpid(), count_descriptors());
+    while (1)
+    {
+        res = read(production_pipe_read, &letter, 1);
+        if (res == 0)
+        {
+            printf("Broken pipe\n");
+            ERR("Broken pipe\n");
+        }
+        if (res == -1)
+        {
+            printf("Error reading from a pipe\n");
+            ERR("Error reading from a pipe");
+        }
+        if (res == 1)
+        {
+            // printf("Read the value: %c from the pipe\n", letter);
+            random_time = rand() % 10 + 1;
+            msleep(random_time);
+            random_letter_count = rand() % 4 + 1;
+            for (int j = 0; j < random_letter_count; j++)
+            {
+                buf[j] = letter;
+            }
+            res = write(production_pipe_write, buf, random_letter_count);
+            if (res == -1)
+            {
+                if (errno == EPIPE)
+                    printf("No readers for this pipe\n");
+                else
+                {
+                    printf("Error sending the letter into a pipe\n");
+                    ERR("Error sending the letter into a pipe\n");
+                }
+            }
+            else
+            {
+                ;  // printf("stage 2, message sent\n");
+            }
+        }
+    }
 }
 void third_brigade_work(int production_pipe_read, int boss_pipe)
 {
     srand(getpid());
+    int res, random_time, i = 0;
+    char letter;
+    char word[6];
+    word[5] = '\0';
     printf("Worker %d from the third brigade: descriptors: %d\n", getpid(), count_descriptors());
+    while (1)
+    {
+        random_time = rand() % 3 + 1;
+        msleep(random_time);
+        res = read(production_pipe_read, &letter, 1);
+        if (res == 0)
+        {
+            printf("Broken pipe\n");
+            ERR("Broken pipe\n");
+        }
+        if (res == -1)
+        {
+            printf("Error reading from a pipe\n");
+            ERR("Error reading from a pipe");
+        }
+        if (res == 1)
+        {
+            word[i] = letter;
+            i++;
+            if (i == 5)
+            {
+                i = 0;
+                printf("%s\n", word);
+            }
+        }
+    }
+    // sleep(4);
+}
+void boss_work(int* desc, int worker_count)
+{
+    for (int i = 0; i < worker_count; i++)
+    {
+        close(desc[i * 2 + 1]);
+    }
+    // at the end
+    int res;
+    // sleep(20);
+    while ((res = wait(NULL)) > 0)
+    {
+        printf("A child (%d) just exited\n", res);
+    }  // parent waiting for children
+    printf("Boss: descriptors: %d\n", count_descriptors() - 3);
+}
+void close_descriptors(int* desc, int worker_count, int my_id)
+{
+    for (int i = 0; i < worker_count; i++)
+    {
+        if (i != my_id)
+        {
+            close(desc[i * 2 + 1]);
+        }
+        close(desc[i * 2]);
+    }
 }
 
 int main(int argc, char* argv[])
@@ -103,5 +239,92 @@ int main(int argc, char* argv[])
     if (w1 < 1 || w1 > 10 || w2 < 1 || w2 > 10 || w3 < 1 || w3 > 10)
         usage(argv[0]);
 
-    printf("Boss: descriptors: %d\n", count_descriptors());
+    int boss_pid = getpid();
+    // creating pipes
+    // to the boss:
+    int worker_count = w1 + w2 + w3;
+    int desc[worker_count * 2];
+    for (int i = 0; i < worker_count; i++)
+    {
+        pipe(&desc[i * 2]);
+        // printf("opening a pipe\n");
+    }
+    int first_second_pipe[2], second_third_pipe[2];
+    pipe(first_second_pipe);
+    pipe(second_third_pipe);
+
+    // creating the fifo
+    int res = mkfifo("warehouse", S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    if (res == -1)
+    {
+        if (errno != EEXIST)
+        {
+            printf("Error creating a fifo\n");
+            ERR("Error creating a fifo\n");
+        }
+    }
+    int warehouse = open("warehouse", O_RDONLY);
+
+    // now create the child processes:
+    for (int i = 0; i < worker_count; i++)
+    {
+        res = fork();
+        if (res > 0)
+        {
+            continue;
+        }
+        if (res == 0)
+        {
+            srand(getpid());
+            close_descriptors(desc, worker_count, i);
+            if (i < w1)
+            {
+                close(first_second_pipe[0]);
+                close(second_third_pipe[0]);
+                close(second_third_pipe[1]);
+                first_brigade_work(first_second_pipe[1], desc[i * 2 + 1], warehouse);
+            }
+            else
+            {
+                if (i < w1 + w2)
+                {
+                    close(warehouse);
+                    close(first_second_pipe[1]);
+                    close(second_third_pipe[0]);
+                    second_brigade_work(second_third_pipe[1], first_second_pipe[0], desc[i * 2 + 1]);
+                }
+                else
+                {
+                    close(warehouse);
+                    close(first_second_pipe[0]);
+                    close(first_second_pipe[1]);
+                    close(second_third_pipe[1]);
+                    third_brigade_work(second_third_pipe[0], desc[i * 2 + 1]);
+                }
+            }
+            break;
+        }
+        if (res < 0)
+        {
+            ERR("Error creating a process.\n");
+        }
+    }
+    if (getpid() == boss_pid)
+    {
+        close(warehouse);
+        close(first_second_pipe[0]);
+        close(first_second_pipe[1]);
+        close(second_third_pipe[0]);
+        close(second_third_pipe[1]);
+        boss_work(desc, worker_count);
+    }
+
+    if (getpid() == boss_pid)
+    {
+        ;
+    }
+    else
+    {
+        // printf("%d: descriptors: %d\n", getpid(), count_descriptors()-3);
+    }
 }
